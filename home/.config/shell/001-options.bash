@@ -24,7 +24,9 @@ shopt -s histappend  # append to the history file, don't overwrite it
 export HISTTIMEFORMAT="[%F %T] "
 export HISTSIZE=10000
 export HISTFILESIZE=10000
-export HISTFILE={{ .xdgStateDir }}/bash/history
+
+mkdir -p "${XDG_STATE_HOME}/bash"
+export HISTFILE=${XDG_STATE_HOME}/bash/history
 
 # Avoid duplicate entries and skip commands with a leading space
 # (ignoreboth = ignorespace + ignoredups; erasedups also purges prior dupes)

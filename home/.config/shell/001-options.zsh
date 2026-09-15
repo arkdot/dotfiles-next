@@ -1,5 +1,5 @@
 setopt always_to_end      # When completing a word, move the cursor to the end of the word
-setopt complete_in_word   # if unset, the cursor is set to the end of the word if completion is started. 
+setopt complete_in_word   # if unset, the cursor is set to the end of the word if completion is started.
                           # Otherwise it stays there and completion is done from both ends.
 setopt auto_list          # list available completion when pressing Tab
 setopt auto_menu          # cycle through possible completions when pressing Tab repeatedly
@@ -20,7 +20,8 @@ setopt histignorespace         # remove commands from the history when the first
 setopt inc_append_history      # save history entries as soon as they are entered
 setopt share_history           # share history between different instances of the shell
 
-HISTFILE="${XDG_STATE_DIR}/zsh/history"
+mkdir -p "${XDG_STATE_HOME}/zsh"
+HISTFILE="${XDG_STATE_HOME}/zsh/history"
 HISTSIZE=100000
 SAVEHIST=${HISTSIZE}
 
@@ -36,7 +37,7 @@ zstyle ':completion:*:match:*' original only
 zstyle ':completion:*:approximate:*' max-errors 1 numeric
 
 zstyle ':completion:*' use-cache on
-zstyle ':completion:*' cache-path "{{ .xdgCacheDir }}/zsh/cache"
+zstyle ':completion:*' cache-path "${XDG_CACHE_DIR}/zsh/cache"
 
 zstyle ':completion:*' list-colors ''
 zstyle ':completion:*:*:kill:*:processes' list-colors '=(#b) #([0-9]#) ([0-9a-z-]#)*=01;34=0=01'
