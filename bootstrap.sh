@@ -83,14 +83,32 @@ install_files() {
 }
 
 remove_files() {
-  for link in $(find "$HOME" -type l -print 2>/dev/null); do
-    target="$(readlink -- "${link}")"
-    rel_path="${link#"${HOME}"/}"
+  for repo_file in $(find "$source_dir" -type f | sort); do
+    rel_path="${repo_file#"${source_dir}"/}"
+    link="${HOME}/${rel_path}"
 
-    if [[ "${target}" == "${source_dir}"* ]] && [[ ! -e "${target}" ]]; then
-      log_deleted "${rel_path}"
+    if [[ -L "$link" ]] && [[ "$(readlink -- "$link")" == "$repo_file" ]]; then
+      log_deleted "$rel_path"
       if [[ "$dry_run" == false ]]; then
-        rm -f "${link}"
+        rm -f "$link"
+      fi
+    fi
+  done
+
+  for repo_dir in $(find "$source_dir" -depth -type d | sort -r); do
+    rel_path="${repo_dir#"${source_dir}"/}"
+
+    if [[ "$rel_path" == "$source_dir" ]]; then
+      continue
+    fi
+
+    target_dir="${HOME}/${rel_path}"
+
+    if [[ -d "$target_dir" ]] && [[ -z "$(find "$target_dir" -mindepth 1 -print -quit 2>/dev/null)" ]]; then
+      if [[ "$dry_run" == false ]]; then
+        rmdir "$target_dir" 2>/dev/null || true
+      else
+        echo "Would remove empty directory: $target_dir"
       fi
     fi
   done
