@@ -1,5 +1,5 @@
 
-if has_program "fzf"; then
+if has_command "fzf"; then
     # Requires fd, bat, and eza to be installed
     if command -v fd >/dev/null && command -v bat >/dev/null && command -v eza >/dev/null; then
         show_file_or_dir_preview="if [ -d {} ]; then eza --tree --color=always {} | head -200; else bat -n --color=always --line-range :500 {}; fi"
