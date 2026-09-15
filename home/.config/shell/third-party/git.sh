@@ -1,0 +1,22 @@
+if has_command "git"; then
+    alias g="git"
+    alias gci="git commit"
+    alias gcia="git commit -a"
+    alias gcim="git commit -m"
+    alias gciam="git commit -am"
+    alias gst="git status -s"
+    alias gamm="git commit --amend"
+    alias gforgot="git commit -a --amend -C HEAD"
+    alias gadd="git add"
+    alias grm="git rm"
+    alias gls="git ls"  # ls defined in $HOME/.gitconfig
+    alias gl="git log --oneline"
+    alias god="git opendiff"
+    alias gpull="git pull"
+    alias gpush="git push"
+    alias ginit="git init"
+    alias gclone="git clone"
+    alias gco="git checkout"
+    alias gmv="git mv"
+    alias glog="git log"
+fi
