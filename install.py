@@ -12,11 +12,12 @@ import argparse
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
 from rich.console import Console
 from rich.prompt import Confirm
 
-console = Console(stderr=True)
+console = Console(stderr=True, highlight=False)
 
 
 @dataclass(frozen=True)
@@ -61,12 +62,50 @@ def ensure_directory(path: Path):
 def log_added(path: Path):
     console.print(f"[bold green][+][/bold green] {path}")
 
+
+def log_deleted(path: Path):
+    console.print(f"[bold red][-][/bold red] {path}")
+
+
 def log_modified(path: Path):
     console.print(f"[bold yellow][~][/bold yellow] {path}")
 
 
-def remove_dotfiles(root: Path):
-    raise NotImplementedError
+def iter_dotfiles(root: Path, dest_dir: Path) -> Iterator[Path, Path]:
+    """Iterates over files and directories in the root directory.
+
+    Creates the destination path on the fly.
+    """
+    return (
+        (source, dest_dir / source.relative_to(source.parts[0]))
+        for source in root.glob("**/*")
+    )
+
+
+def remove_dotfiles(root: Path, destination: Path, config: Config):
+    """Removes links and empty directories created by `symlink_dotfiles`."""
+    dry_run = config.dry_run
+    force = config.force
+
+    # Get deepest path first to be able to remove empty directories
+    by_depth = sorted(
+        iter_dotfiles(root, destination),
+        key=lambda item: len(item[0].parts),
+        reverse=True,
+    )
+
+    for source_path, dest_path in by_depth:
+        if dest_path.is_symlink():
+            if dest_path.resolve() == source_path.resolve():
+                log_deleted(dest_path)
+                if not dry_run:
+                    dest_path.unlink()
+
+        # Removes empty directories
+        elif dest_path.is_dir() and not list(dest_path.glob("**/*")):
+            log_deleted(dest_path)
+            if not dry_run:
+                dest_path.rmdir()
 
 
 def confirm_update(source: Path, target: Path, force: bool, dry_run: bool) -> bool:
@@ -80,19 +119,15 @@ def confirm_update(source: Path, target: Path, force: bool, dry_run: bool) -> bo
     """
     destroy = True
     if not dry_run and not force:
-        destroy = Confirm.ask(f"{source!s}: already exists. Destroy it?")
+        destroy = Confirm.ask(f"{target!s}: already exists. Destroy it?")
 
     if destroy:
         log_modified(target)
         if not dry_run:
-            source.unlink()
+            target.unlink()
             target.symlink_to(source.resolve())
 
     return destroy
-
-
-
-
 
 
 def symlink_dotfiles(root: Path, destination: Path, config: Config):
@@ -100,9 +135,7 @@ def symlink_dotfiles(root: Path, destination: Path, config: Config):
     dry_run = config.dry_run
     force = config.force
 
-    for source_path in root.glob("**/*"):
-        dest_path = destination / source_path.relative_to(root)
-
+    for source_path, dest_path in iter_dotfiles(root, destination):
         # source_path is a directory: creates destination directory if does not exist
         if source_path.is_dir():
             if dest_path.exists():
@@ -115,12 +148,13 @@ def symlink_dotfiles(root: Path, destination: Path, config: Config):
 
         # source_path is a file
         else:
-
             # Remove existing file / updates symbolic link
             if dest_path.exists():
                 if dest_path.is_symlink():
                     if dest_path.resolve() != source_path.resolve():
-                        confirm_update(source_path, dest_path, force=force, dry_run=dry_run)
+                        confirm_update(
+                            source_path, dest_path, force=force, dry_run=dry_run
+                        )
                 else:
                     confirm_update(source_path, dest_path, force=force, dry_run=dry_run)
 
@@ -131,10 +165,6 @@ def symlink_dotfiles(root: Path, destination: Path, config: Config):
                     dest_path.symlink_to(source_path.resolve())
 
 
-    if dry_run:
-        console.print()
-        console.print("This was a dry run: nothing actually happened")
-
 
 def main():
     config = parse_command_line()
@@ -142,28 +172,18 @@ def main():
     source_root = Path("home")
     dest_root = Path.home()
 
-    # !! DEBUG setup !!!!!!!!
+    # !! DEBUG setup !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     dest_root = Path("coucou")
-    if dest_root.exists():
-        import shutil
-
-        shutil.rmtree(dest_root)
-    dest_root.mkdir()
-
-    # Creates a .zshrc in destination to mimic existing file
-    (dest_root / ".zshrc").write_text("")
-
-    # Creates a link to .bash_profile in destination to mimic existing link
-    # (dest_root / ".bash_profile").symlink_to(source_root.absolute() / ".bash_profile")
-
-    config = Config(dry_run=True, force=False)
-
-    # !!!!!!!!!!!!!!!!!
+    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     if config.remove:
-        remove_dotfiles(source_root)
+        remove_dotfiles(source_root, dest_root, config)
     else:
         symlink_dotfiles(source_root, dest_root, config)
+
+    if config.dry_run:
+        console.print()
+        console.print("This was a dry run: nothing actually happened")
 
 
 if __name__ == "__main__":
