@@ -172,6 +172,9 @@ def main():
     source_root = Path("home")
     dest_root = Path.home()
 
+    dest_root = Path("coucou")
+    # dest_root.mkdir()
+
     if config.remove:
         remove_dotfiles(source_root, dest_root, config)
     else:
