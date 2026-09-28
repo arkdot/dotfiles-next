@@ -1,3 +1,4 @@
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.14"
 # dependencies = ["rich"]
@@ -142,23 +143,11 @@ def main():
     source_root = Path("home")
     dest_root = Path.home()
 
-    # !! DEBUG setup !!!!!!!!
-    dest_root = Path("coucou")
-    if dest_root.exists():
-        import shutil
-
-        shutil.rmtree(dest_root)
-    dest_root.mkdir()
-
     # Creates a .zshrc in destination to mimic existing file
     (dest_root / ".zshrc").write_text("")
 
     # Creates a link to .bash_profile in destination to mimic existing link
     # (dest_root / ".bash_profile").symlink_to(source_root.absolute() / ".bash_profile")
-
-    config = Config(dry_run=True, force=False)
-
-    # !!!!!!!!!!!!!!!!!
 
     if config.remove:
         remove_dotfiles(source_root)
