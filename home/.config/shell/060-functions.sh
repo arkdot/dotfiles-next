@@ -81,3 +81,4 @@ os_is_linux() {
     fi
     return false
 }
+prepend_path() { [[ -d "$1" ]] && case ":$PATH:" in *":$1:"*) ;; *) PATH="$1:$PATH" ;; esac; 
