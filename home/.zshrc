@@ -8,3 +8,6 @@ for shell_file in ${(f)shell_files}; do
 done
 
 alias s='source "$HOME/.zshrc"'
+
+# Source $HOME/.extra if exists
+[[ -f $HOME/.extra ]] && source ~/.extra
