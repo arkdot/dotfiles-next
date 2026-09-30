@@ -11,6 +11,7 @@ Directories will be created, and files will be symlinked.
 
 import argparse
 import sys
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -166,21 +167,41 @@ def symlink_dotfiles(root: Path, destination: Path, config: Config):
                     dest_path.symlink_to(source_path.resolve())
 
 
+def header(msg):
+    console.print("\n" + msg)
+
+
 
 def main():
-    config = parse_command_line()
+    header("== Symlink dotfiles ==================================")
+    console.print("skipping...")
 
-    source_root = Path("home")
-    dest_root = Path.home()
+    # config = parse_command_line()
+    #
+    # source_root = Path("home")
+    # dest_root = Path.home()
+    #
+    # if config.remove:
+    #     remove_dotfiles(source_root, dest_root, config)
+    # else:
+    #     symlink_dotfiles(source_root, dest_root, config)
+    #
+    # if config.dry_run:
+    #     console.print()
+    #     console.print("This was a dry run: nothing actually happened")
 
-    if config.remove:
-        remove_dotfiles(source_root, dest_root, config)
-    else:
-        symlink_dotfiles(source_root, dest_root, config)
+    header("== Installing tools ==================================")
+    tools_script_dir = Path("tools")
 
-    if config.dry_run:
-        console.print()
-        console.print("This was a dry run: nothing actually happened")
+    for script in sorted(tools_script_dir.glob("**/*")):
+        tool_name = script.name.rsplit("-")[1].rsplit(".")[0]
+        header(f"== Installing {tool_name}")
+        result = subprocess.run(["bash", script])
+        if result.returncode != 0:
+            print(f"{tool_name}: installation failed")
+            sys.exit(1)
+
+
 
 
 if __name__ == "__main__":
