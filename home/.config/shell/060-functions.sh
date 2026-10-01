@@ -56,29 +56,29 @@ has_command() {
 
 shell_is_zsh() {
     if [[ -n ${ZSH_NAME} ]]; then
-        return "true"
+        return 0
     fi
-    return "false"
+    return 1
 }
 
 shell_is_bash() {
     if [[ -n ${BASH} ]]; then
-        return "true"
+        return 0
     fi
-    return "false"
+    return 1
 }
 
 os_is_darwin() {
     if [[ "$OSTYPE" = darwin* ]]; then
-        return "true"
+        return 0
     fi
-    return false
+    return 1
 }
 
 os_is_linux() {
     if [[ "$OSTYPE" = linux* ]]; then
-        return "true"
+        return 0
     fi
-    return false
+    return 1
 }
 prepend_path() { [[ -d "$1" ]] && case ":$PATH:" in *":$1:"*) ;; *) PATH="$1:$PATH" ;; esac; }

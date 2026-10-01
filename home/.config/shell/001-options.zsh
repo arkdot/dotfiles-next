@@ -42,7 +42,7 @@ zstyle ':completion:*' cache-path "${XDG_CACHE_DIR}/zsh/cache"
 zstyle ':completion:*' list-colors ''
 zstyle ':completion:*:*:kill:*:processes' list-colors '=(#b) #([0-9]#) ([0-9a-z-]#)*=01;34=0=01'
 zstyle ':completion:*' completer _oldlist _expand _force_rehash _complete _match # forces zsh to realize new commands
-zstyle ':completion:*' matcher-list 'm:{a-z}={A-Za-z}'                           # matches case insensitive for lowercase
+zstyle ':completion:*' matcher-list 'm:{[:lower:][:upper:]}={[:upper:][:lower:]}' 'r:|=*' 'l:|=* r:|=*'  # complete with any part of the word
 zstyle ':completion:*' insert-tab pending                                        # pasting with tabs doesn't perform completion
 zstyle ':completion:*' menu select=2                                             # menu if nb items > 2
 zstyle ':completion:*' special-dirs true                                         # Show dotfiles in completions
@@ -64,3 +64,5 @@ zstyle ':completion:*:git-checkout:*' sort false
 
 # force zsh not to show completion menu, which allows fzf-tab to capture the unambiguous prefix
 zstyle ':completion:*' menu no
+
+
