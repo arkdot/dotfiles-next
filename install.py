@@ -10,15 +10,22 @@ Directories will be created, and files will be symlinked.
 """
 
 import argparse
-import sys
 import subprocess
+import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator
+from tempfile import NamedTemporaryFile
 
 from rich.console import Console
 from rich.prompt import Confirm
+from rich.progress import Progress
 
+# Tools to be installed using cargo
+CARGO_TOOL_LIST = ["bat", "eza", "fd-find", "ripgrep", "starship", "zoxide"]
+
+
+# Rich console for logging & prompting
 console = Console(stderr=True, highlight=False)
 
 
@@ -31,6 +38,14 @@ class Config:
 
 def fatal_error(msg: str):
     console.print(f"[bold red]!! FATAL ERROR: {msg}")
+
+
+def error(msg: str):
+    console.print(f"[bold red]!! ERROR: {msg}")
+
+
+def header(msg):
+    console.print(f"\n[green]{msg}[/green]")
 
 
 def parse_command_line() -> Config:
@@ -87,7 +102,6 @@ def iter_dotfiles(root: Path, dest_dir: Path) -> Iterator[Path, Path]:
 def remove_dotfiles(root: Path, destination: Path, config: Config):
     """Removes links and empty directories created by `symlink_dotfiles`."""
     dry_run = config.dry_run
-    force = config.force
 
     # Get deepest path first to be able to remove empty directories
     by_depth = sorted(
@@ -167,41 +181,109 @@ def symlink_dotfiles(root: Path, destination: Path, config: Config):
                     dest_path.symlink_to(source_path.resolve())
 
 
-def header(msg):
-    console.print("\n" + msg)
+def has_command(command: str) -> bool:
+    """Invokes the commands and returns true if commands exists."""
+    try:
+        subprocess.run([command], check=False, capture_output=True)
+    except FileNotFoundError:
+        return False
+    return True
 
+
+def install_cargo():
+    """Installs cargo."""
+
+    with NamedTemporaryFile(delete_on_close=False) as fp:
+        result = subprocess.run(
+            ["curl", "-s", "-S", "-f", "https://sh.rustup.rs"],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            fatal_error(f"failed to download cargo install script:\n{result.stderr}\n")
+            fatal_error("failed to download cargo install script")
+            sys.exit(1)
+        else:
+            fp.write(result.stdout)
+            fp.close()
+
+
+        with Progress(console=console) as progress:
+            task = progress.add_task("[cyan]Installing cargo...", total=None)
+
+            result = subprocess.run(
+                ["sh", fp.name, "-q", "-y", "--no-modify-path"],
+                capture_output=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                progress.update(task, description="[bold red]Failed")
+                fatal_error(f"failed to install cargo:\n{result.stderr}\n")
+                fatal_error("failed to install cargo")
+                sys.exit(1)
+            else:
+                progress.update(task, description="[green]cargo installation: Done!")
+
+
+def _cargo_install(package: str, cargo_executable: Path) -> bool:
+    """Run `cargo install --locked <package>`."""
+    result = subprocess.run([cargo_executable, "install", "--locked", package], capture_output=True, check=False)
+    if result.returncode != 0:
+        error(f"{package}: installation failed")
+        return False
+    return True
+
+
+def install_tools(dry_run: bool):
+    """Install tools using install scripts located in `root`.
+
+    Scripts are expected to be named as using this format: <number>_install-<tool_name>.sh.
+    """
+
+    if not has_command("cargo"):
+        install_cargo()
+
+    # Create full path to cargo executable and check it is actually here
+    cargo_executable = Path.home() / ".cargo" / "bin" / "cargo"
+    if not cargo_executable.is_file():
+        fatal_error(f"cargo executable not found at {cargo_executable!s}")
+
+    for tool in CARGO_TOOL_LIST:
+        if dry_run:
+            console.print("skipping...")
+        else:
+            with Progress(console=console) as progress:
+                task = progress.add_task(f"[cyan]Installing {tool}...", total=None)
+                success = _cargo_install(tool, cargo_executable)
+                if success:
+                    progress.update(task, description="[green]{tool}: Done!")
+                else:
+                    progress.update(task, description="[bold red]{tool}: Failed")
 
 
 def main():
-    header("== Symlink dotfiles ==================================")
-    console.print("skipping...")
+    config=parse_command_line()
 
-    # config = parse_command_line()
-    #
-    # source_root = Path("home")
-    # dest_root = Path.home()
-    #
-    # if config.remove:
-    #     remove_dotfiles(source_root, dest_root, config)
-    # else:
-    #     symlink_dotfiles(source_root, dest_root, config)
-    #
-    # if config.dry_run:
-    #     console.print()
-    #     console.print("This was a dry run: nothing actually happened")
+    source_root=Path("home")
+    dest_root=Path.home()
 
-    header("== Installing tools ==================================")
-    tools_script_dir = Path("tools")
+    if not dest_root.is_dir():
+        fatal_error(f"{dest_root!s} is not a valid directory. Cannot setup dotfiles")
+        sys.exit(1)
 
-    for script in sorted(tools_script_dir.glob("**/*")):
-        tool_name = script.name.rsplit("-")[1].rsplit(".")[0]
-        header(f"== Installing {tool_name}")
-        result = subprocess.run(["bash", script])
-        if result.returncode != 0:
-            print(f"{tool_name}: installation failed")
-            sys.exit(1)
+    if config.remove:
+        header("== Removing symlinks =================================")
+        remove_dotfiles(source_root, dest_root, config)
+    else:
+        header("== Symlink dotfiles ==================================")
+        symlink_dotfiles(source_root, dest_root, config)
 
+        header("== Installing tools ==================================")
+        install_tools(config.dry_run)
 
+    if config.dry_run:
+        console.print()
+        console.print("This was a dry run: nothing actually happened")
 
 
 if __name__ == "__main__":

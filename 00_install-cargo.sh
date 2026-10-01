@@ -10,5 +10,6 @@
 # rustup installer arguments:
 #     - -q: quiet
 #     - -y: disable confirmation prompt
+#     --no-modify-path: do not modify interpreter configuration
 
- curl https://sh.rustup.rs -sSf | sh -s -- -q -y
+ curl https://sh.rustup.rs -sSf | sh -s -- -q -y  --no-modify-path
