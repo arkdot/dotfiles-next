@@ -21,8 +21,26 @@ from rich.console import Console
 from rich.prompt import Confirm
 from rich.progress import Progress
 
+
+@dataclass
+class CargoTool:
+    executable: str
+    package: str | None = None
+
+    def __post_init__(self):
+        if self.package is None:
+            self.package = self.executable
+
+
 # Tools to be installed using cargo
-CARGO_TOOL_LIST = ["bat", "eza", "fd-find", "ripgrep", "starship", "zoxide"]
+CARGO_TOOL_LIST = [
+    CargoTool("bat"),
+    CargoTool("eza"),
+    CargoTool("fd", "fd-find"),
+    CargoTool("rg", "ripgrep"),
+    CargoTool("starship"),
+    CargoTool("zoxide"),
+]
 
 
 # Rich console for logging & prompting
@@ -184,7 +202,7 @@ def symlink_dotfiles(root: Path, destination: Path, config: Config):
 def has_command(command: str) -> bool:
     """Invokes the commands and returns true if commands exists."""
     try:
-        subprocess.run([command], check=False, capture_output=True)
+        subprocess.run(["which", command], check=False, capture_output=True)
     except FileNotFoundError:
         return False
     return True
@@ -207,7 +225,6 @@ def install_cargo():
             fp.write(result.stdout)
             fp.close()
 
-
         with Progress(console=console) as progress:
             task = progress.add_task("[cyan]Installing cargo...", total=None)
 
@@ -227,9 +244,12 @@ def install_cargo():
 
 def _cargo_install(package: str, cargo_executable: Path) -> bool:
     """Run `cargo install --locked <package>`."""
-    result = subprocess.run([cargo_executable, "install", "--locked", package], capture_output=True, check=False)
+    result = subprocess.run(
+        [cargo_executable, "install", "--locked", package],
+        capture_output=True,
+        check=False,
+    )
     if result.returncode != 0:
-        error(f"{package}: installation failed")
         return False
     return True
 
@@ -249,23 +269,23 @@ def install_tools(dry_run: bool):
         fatal_error(f"cargo executable not found at {cargo_executable!s}")
 
     for tool in CARGO_TOOL_LIST:
-        if dry_run:
-            console.print("skipping...")
-        else:
-            with Progress(console=console) as progress:
-                task = progress.add_task(f"[cyan]Installing {tool}...", total=None)
-                success = _cargo_install(tool, cargo_executable)
+        with Progress(console=console) as progress:
+            task = progress.add_task(f"[cyan]Installing {tool.executable}...", total=None)
+            if dry_run or has_command(tool.executable):
+                progress.update(task, description=f"{tool.executable}: skipping")
+            else:
+                success = _cargo_install(tool.package, cargo_executable)
                 if success:
-                    progress.update(task, description="[green]{tool}: Done!")
+                    progress.update(task, description=f"[green]{tool.executable}: Done!")
                 else:
-                    progress.update(task, description="[bold red]{tool}: Failed")
+                    progress.update(task, description=f"[bold red]{tool.executable}: Failed")
 
 
 def main():
-    config=parse_command_line()
+    config = parse_command_line()
 
-    source_root=Path("home")
-    dest_root=Path.home()
+    source_root = Path("home")
+    dest_root = Path.home()
 
     if not dest_root.is_dir():
         fatal_error(f"{dest_root!s} is not a valid directory. Cannot setup dotfiles")
