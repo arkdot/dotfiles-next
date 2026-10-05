@@ -22,7 +22,7 @@ read key
 
 
 title "Cloning the repo"
-git clone --recurse-submodules https://github.com/arkdot/dotfiles-next && \
+git clone --recurse-submodules https://github.com/arkdot/dotfiles-next.git && \
 cd dotfiles-next
 
 # Installs uv if necessary
