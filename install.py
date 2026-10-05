@@ -201,12 +201,8 @@ def symlink_dotfiles(root: Path, destination: Path, config: Config):
 
 def has_command(command: str) -> bool:
     """Invokes the commands and returns true if commands exists."""
-    try:
-        subprocess.run(["which", command], check=False, capture_output=True)
-    except FileNotFoundError:
-        return False
-    return True
-
+    result = subprocess.run(["which", command], check=False, capture_output=True)
+    return result.returncode == 0 or False
 
 def install_cargo():
     """Installs cargo."""
@@ -249,9 +245,7 @@ def _cargo_install(package: str, cargo_executable: Path) -> bool:
         capture_output=True,
         check=False,
     )
-    if result.returncode != 0:
-        return False
-    return True
+    return result.returncode == 0
 
 
 def install_tools(dry_run: bool):
