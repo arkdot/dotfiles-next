@@ -11,5 +11,5 @@ cd /path/to/dotfiles
 ## Installation from the github repo
 
 ```
-curl -sL https://raw.githubusercontent.com/arkdot/dotfiles/master/bootstrap.sh | bash
+curl -sL https://raw.githubusercontent.com/arkdot/dotfiles-next/refs/heads/main/bootstrap.sh | bash
 ```
