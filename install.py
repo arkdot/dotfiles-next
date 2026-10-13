@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.14"
-# dependencies = ["rich"]
+# dependencies = ["rich", "requests", "pydantic"]
 # ///
 
 """Boostraps dotfiles.
@@ -9,42 +9,318 @@
 Directories will be created, and files will be symlinked.
 """
 
+from __future__ import annotations
+
 import argparse
+import json
+import platform
+import re
 import subprocess
 import sys
+import tarfile
+import tempfile
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from platform import uname_result
 from tempfile import NamedTemporaryFile
+from typing import Annotated, Literal
+from urllib.parse import urlparse
 
+import requests
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from rich.console import Console
-from rich.prompt import Confirm
 from rich.progress import Progress
-
-
-@dataclass
-class CargoTool:
-    executable: str
-    package: str | None = None
-
-    def __post_init__(self):
-        if self.package is None:
-            self.package = self.executable
-
-
-# Tools to be installed using cargo
-CARGO_TOOL_LIST = [
-    CargoTool("bat"),
-    CargoTool("eza"),
-    CargoTool("fd", "fd-find"),
-    CargoTool("rg", "ripgrep"),
-    CargoTool("starship"),
-    CargoTool("zoxide"),
-]
-
+from rich.prompt import Confirm
 
 # Rich console for logging & prompting
 console = Console(stderr=True, highlight=False)
+
+
+@dataclass(frozen=True)
+class SystemInfo:
+    """Stores system informations (os, architecture...)."""
+
+    _uname: uname_result = field(init=False, default_factory=platform.uname)
+
+    @property
+    def arch(self) -> str:
+        return self._uname.machine
+
+    @property
+    def os(self) -> str:
+        return self._uname.system.lower()
+
+    @property
+    def os_alias(self) -> str:
+        if self.os == "darwin":
+            return "macos"
+        return self.os
+
+    @property
+    def vendor(self) -> str:
+        if self.os == "darwin":
+            return "apple"
+        return "unknown"
+
+    def asdict(self):
+        return {key: getattr(self, key) for key in ("arch", "os", "os_alias", "vendor")}
+
+
+SYSTEM = SystemInfo()
+
+# == GitHub interactions ================================================================================
+
+
+@dataclass
+class GitHubRepo:
+    GITHUB_API = "https://api.github.com"
+
+    owner: str
+    repo: str
+
+    def __init__(self, homepage: str):
+        """Initializes a GitHubRepo the repo home page.
+
+        Args:
+            homepage: github.com project url (https://github.com/<owner>/<repo>)
+
+        Raises:
+            ValueError: if url does not repect expected format
+        """
+        parsed = urlparse(homepage)
+
+        if parsed.netloc != "github.com":
+            raise ValueError("GitHubRepo home page url must start with github.com")
+
+        tokens = parsed.path.split("/")[1:]
+        if len(tokens) != 2:
+            raise ValueError(f"Misformatted GitHub repository url: {homepage!s}")
+
+        self.owner = tokens[0]
+        self.repo = tokens[1]
+
+    @property
+    def release_url(self) -> str:
+        return f"{self.GITHUB_API}/repos/{self.owner}/{self.repo}/releases"
+
+    def get_release_list(self) -> list[GitHubRelease]:
+        response = requests.get(self.release_url)
+        response.raise_for_status()
+        return [GitHubRelease.model_validate(item) for item in response.json()]
+
+    def get_release(self, version: str) -> GitHubRelease:
+        releases = self.get_release_list()
+        if releases and version == "latest":
+            return releases[0]
+        by_version = {r.version: r for r in releases}
+        if version not in by_version:
+            raise ValueError(f"cannot find version {version!r} in release list")
+        return by_version[version]
+
+
+class GitHubAsset(BaseModel):
+    browser_download_url: str
+    name: str
+
+
+class GitHubRelease(BaseModel):
+    html_url: str
+    tag_name: str
+    assets: list[GitHubAsset]
+
+    @property
+    def version(self) -> str:
+        match = re.match("v?(.*)", self.tag_name)
+        if not match:
+            raise ValueError(f"Cannot parse tag {self.tag_name!s}")
+        return match.group(1)
+
+    def get_asset(self, name: str) -> GitHubAsset:
+        """Returns the asset with given name.
+
+        Raises:
+            ValueError: if the requested asset does not exist in the release.
+        """
+        assets = {asset.name: asset for asset in self.assets}
+        if name not in assets:
+            raise ValueError(
+                f"Cannot find asset {name!r} in last release assets (see {self.html_url})"
+            )
+        return assets[name]
+
+
+# == Tarball extraction =================================================================================
+class FilterBase:
+    """Filter base class for tar that can be chained.
+
+    Stores members in `seen` the same member is not seen multiple time, which
+    for some reason is the case if not taken care of.
+    """
+
+    def __init__(self):
+        self._next: FilterBase | None = None
+
+    def __call__(self, member: tarfile.TarInfo, path: Path) -> tarfile.TarInfo | None:
+        if self._next:
+            member = self._next.__call__(member, path)
+        return member
+
+    def add(self, other: FilterBase) -> FilterBase:
+        self._next = other
+        return self
+
+    def __exit__(self, *exc_info):
+        pass
+
+
+class StripComponentsFilter(FilterBase):
+    def __init__(self, n: int = 1):
+        super().__init__()
+        self.n = n
+
+    def __call__(self, member: tarfile.TarInfo, path: Path):
+        if member.name != ".":
+            parts = Path(member.name).parts
+            assert len(parts) >= self.n
+            member.name = str(Path(*parts[self.n :]))
+            return super().__call__(member, path)
+        return None
+
+
+class CustomTargetsFilter(FilterBase):
+    def __init__(self, targets: dict[str, str]):
+        super().__init__()
+        self.targets = {Path(source): Path(dest) for source, dest in targets.items()}
+
+    def __call__(self, member, path):
+        path = Path(member.name)
+        for target, dest_dir in self.targets.items():
+            if path.is_relative_to(target):
+                member.name = str(dest_dir / path)
+                return super().__call__(member, path)
+        return None
+
+
+def download_tarball(
+    url: str,
+    target_dir: Path = Path(),
+    strip_components: int = 0,
+    targets: dict[str, str] | None = None,
+):
+    """Downloads and extracts a tarball to `target_dir`."""
+
+    filter_func = StripComponentsFilter(strip_components)
+    if targets:
+        filter_func.add(CustomTargetsFilter(targets))
+
+    # Not pretty.
+    # Reasons are:
+    #   1) using `extract_all(filter_func=...)` does crashes for some dubious reason.
+    #   2) we have to get the list of all members and pass it to `extractall`
+    #   3) we cannot do that by streaming the request into `tarfile.open`
+    with tempfile.TemporaryFile() as fp:
+        response = requests.get(url)
+        response.raise_for_status()
+        fp.write(response.content)
+        fp.seek(0)
+
+        with tarfile.open(fileobj=fp, mode="r:gz") as tarobj:
+            members = [filter_func(m, None) for m in tarobj.getmembers()]
+            members = [m for m in members if m is not None]
+            tarobj.extractall(path=target_dir, members=members)
+
+
+# =======================================================================================================
+
+
+class StrictModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+OSType = Literal["darwin", "linux", "*"]
+
+
+class TarStrategy(StrictModel):
+    """Install packages by downloading and uncompressing tarballs."""
+
+    strategy: Literal["tar"]
+    version: str
+    url: str
+    asset_name_format: dict[OSType, str]
+    targets: dict[str, str] = Field(default_factory=dict)
+    strip_components: int = 1
+
+    @property
+    def asset_name(self) -> str:
+        # d = {name: getattr(self, name) for name in ("name", "version")}
+        # d.update(SYSTEM.asdict())
+        d = SYSTEM.asdict()
+        d["version"] = self.version
+        key = "*" if "*" in self.asset_name_format else SYSTEM.os
+        return self.asset_name_format[key].format(**d)
+
+    @property
+    def asset_url(self) -> str:
+        return (
+            GitHubRepo(self.url)
+            .get_release(self.version)
+            .get_asset(self.asset_name)
+            .browser_download_url
+        )
+
+    def install(self, target_dir: Path):
+        download_tarball(
+            self.asset_url,
+            target_dir,
+            strip_components=self.strip_components,
+            targets=self.targets,
+        )
+
+
+class CargoStrategy(StrictModel):
+    """Install packages using `cargo install`."""
+
+    strategy: Literal["cargo"]
+    package: str
+
+    def install(self, target_dir: Path):
+        cargo_install(
+            self.package, cargo_executable=Path.home() / ".cargo" / "bin" / "cargo"
+        )
+
+
+InstallStrategy = Annotated[
+    TarStrategy | CargoStrategy, Field(discriminator="strategy")
+]
+
+
+class Package(BaseModel):
+    """A program to install."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str
+    install: dict[OSType, InstallStrategy]
+    executable: str = Field(default="")
+
+    @model_validator(mode="before")
+    @classmethod
+    def set_default_executable(cls, data):
+        if isinstance(data, dict) and "executable" not in data:
+            data["executable"] = data["name"]
+        return data
+
+    def do_install(self, target_dir: Path):
+        try:
+            if "*" in self.install:
+                self.install["*"].install(target_dir)
+            else:
+                self.install[SYSTEM.os].install(target_dir)
+        except Exception as exc:
+            error(f"Install failed: {exc!s}")
+            return False
+        return True
 
 
 @dataclass(frozen=True)
@@ -82,16 +358,6 @@ def parse_command_line() -> Config:
     )
     args = parser.parse_args()
     return Config(dry_run=args.dry_run, remove=args.clean)
-
-
-def ensure_directory(path: Path):
-    """If `path` is not a directory, prints a fatal error and exists."""
-    if not path.exists():
-        fatal_error(f"{path!s}: not a valid path")
-        sys.exit(1)
-    if not path.is_dir():
-        fatal_error(f"{path!s}: not a valid directory")
-        sys.exit(1)
 
 
 def log_added(path: Path):
@@ -202,7 +468,8 @@ def symlink_dotfiles(root: Path, destination: Path, config: Config):
 def has_command(command: str) -> bool:
     """Invokes the commands and returns true if commands exists."""
     result = subprocess.run(["which", command], check=False, capture_output=True)
-    return result.returncode == 0 or False
+    return result.returncode == 0
+
 
 def install_cargo():
     """Installs cargo."""
@@ -238,7 +505,7 @@ def install_cargo():
                 progress.update(task, description="[green]cargo installation: Done!")
 
 
-def _cargo_install(package: str, cargo_executable: Path) -> bool:
+def cargo_install(package: str, cargo_executable: Path) -> bool:
     """Run `cargo install --locked <package>`."""
     result = subprocess.run(
         [cargo_executable, "install", "--locked", package],
@@ -248,11 +515,8 @@ def _cargo_install(package: str, cargo_executable: Path) -> bool:
     return result.returncode == 0
 
 
-def install_tools(dry_run: bool):
-    """Install tools using install scripts located in `root`.
-
-    Scripts are expected to be named as using this format: <number>_install-<tool_name>.sh.
-    """
+def install_tools(dry_run: bool, target_dir: Path):
+    """Install tools listed in `packages.json`."""
 
     if not has_command("cargo"):
         install_cargo()
@@ -262,17 +526,26 @@ def install_tools(dry_run: bool):
     if not cargo_executable.is_file():
         fatal_error(f"cargo executable not found at {cargo_executable!s}")
 
-    for tool in CARGO_TOOL_LIST:
-        with Progress(console=console) as progress:
-            task = progress.add_task(f"[cyan]Installing {tool.executable}...", total=None)
-            if dry_run or has_command(tool.executable):
-                progress.update(task, description=f"{tool.executable}: skipping")
-            else:
-                success = _cargo_install(tool.package, cargo_executable)
-                if success:
-                    progress.update(task, description=f"[green]{tool.executable}: Done!")
+    packages_list_path = Path("packages.json")
+    if packages_list_path.exists():
+        tools = [
+            Package.model_validate(p)
+            for p in json.loads(packages_list_path.read_text())
+        ]
+
+        for tool in tools:
+            with Progress(console=console) as progress:
+                task = progress.add_task(f"[cyan]Installing {tool.name}...", total=None)
+                if dry_run or has_command(tool.executable):
+                    progress.update(task, description=f"{tool.name}: skipping")
                 else:
-                    progress.update(task, description=f"[bold red]{tool.executable}: Failed")
+                    success = tool.do_install(target_dir)
+                    if success:
+                        progress.update(task, description=f"[green]{tool.name}: Done!")
+                    else:
+                        progress.update(
+                            task, description=f"[bold red]{tool.name}: Failed"
+                        )
 
 
 def main():
@@ -293,7 +566,7 @@ def main():
         symlink_dotfiles(source_root, dest_root, config)
 
         header("== Installing tools ==================================")
-        install_tools(config.dry_run)
+        install_tools(config.dry_run, dest_root / ".local")
 
     if config.dry_run:
         console.print()

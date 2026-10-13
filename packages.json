@@ -1,0 +1,107 @@
+[
+  {
+    "name": "ripgrep",
+    "executable": "rg",
+    "install": {
+      "*": {
+        "strategy": "tar",
+        "version": "15.2.0",
+        "url": "https://github.com/BurntSushi/ripgrep",
+        "asset_name_format": {
+          "darwin": "ripgrep-{version}-{arch}-{vendor}-{os}.tar.gz",
+          "linux": "ripgrep-{version}-{arch}-{vendor}-{os}-musl.tar.gz"
+        },
+        "targets": {
+          "rg": "bin"
+        }
+      }
+    }
+  },
+  {
+    "name": "nvim",
+    "install": {
+      "*": {
+        "strategy": "tar",
+        "version": "0.12.6",
+        "url": "https://github.com/neovim/neovim",
+        "asset_name_format": {
+          "*": "nvim-{os_alias}-{arch}.tar.gz"
+        }
+      }
+    }
+  },
+  {
+    "name": "bat",
+    "install": {
+      "*": {
+        "strategy": "tar",
+        "version": "0.26.1",
+        "url": "https://github.com/sharkdp/bat",
+        "asset_name_format": {
+          "darwin": "bat-v{version}-{arch}-{vendor}-{os}.tar.gz",
+          "linux": "bat-v{version}-{arch}-{vendor}-{os}-musl.tar.gz"
+        },
+        "targets": {
+          "bat": "bin"
+        }
+      }
+    }
+  },
+  {
+    "name": "fd",
+    "install": {
+      "*": {
+        "strategy": "tar",
+        "version": "10.5.0",
+        "url": "https://github.com/sharkdp/fd",
+        "asset_name_format": {
+          "darwin": "fd-v{version}-{arch}-{vendor}-{os}.tar.gz",
+          "linux": "fd-v{version}-{arch}-{vendor}-{os}-musl.tar.gz"
+        },
+        "targets": {
+          "fd": "bin"
+        }
+      }
+    }
+  },
+  {
+    "name": "zoxide",
+    "install": {
+      "*": {
+        "strategy": "tar",
+        "version": "0.10.0",
+        "url": "https://github.com/ajeetdsouza/zoxide",
+        "asset_name_format": {
+          "darwin": "zoxide-{version}-{arch}-{vendor}-{os}.tar.gz",
+          "linux": "zoxide-{version}-{arch}-{vendor}-{os}-musl.tar.gz"
+        },
+        "targets": {
+          "zoxide": "bin",
+          "man": "share"
+        },
+        "strip_components": 0
+      }
+    }
+  },
+  {
+    "name": "eza",
+    "install": {
+      "linux": {
+        "strategy": "tar",
+        "version": "0.23.5",
+        "url": "https://github.com/eza-community/eza",
+        "asset_name_format": {
+          "linux": "eza_{arch}-{vendor}-{os}-musl.tar.gz"
+        },
+        "targets": {
+          "eza": "bin"
+        },
+        "strip_components": 0
+      },
+      "darwin": {
+          "strategy": "cargo",
+          "package": "eza"
+      }
+    }
+  }
+]
