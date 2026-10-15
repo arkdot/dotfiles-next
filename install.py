@@ -511,17 +511,21 @@ def install_tools(dry_run: bool, target_dir: Path):
         ]
 
         for tool in tools:
-            with Progress(console=console) as progress:
-                task = progress.add_task(f"[cyan]Installing {tool.name}...", total=None)
-                if dry_run or has_command(tool.executable):
-                    progress.update(task, description=f"{tool.name}: skipping")
-                else:
+            if dry_run or has_command(tool.executable):
+                console.print(f"[cyan]==> {tool.name}: skipping")
+
+            else:
+                with Progress(console=console) as progress:
+                    prefix = f"==> {tool.name}"
+                    task = progress.add_task(
+                        f"[cyan]{prefix}...", total=None
+                    )
                     success = tool.do_install(target_dir)
                     if success:
-                        progress.update(task, description=f"[green]{tool.name}: Done!")
+                        progress.update(task, description=f"[green]{prefix}: Done!")
                     else:
                         progress.update(
-                            task, description=f"[bold red]{tool.name}: Failed"
+                            task, description=f"[bold red]{prefix}: Failed"
                         )
 
 

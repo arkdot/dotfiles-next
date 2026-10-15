@@ -12,6 +12,24 @@
     }
   },
   {
+    "name": "starship",
+    "install": {
+      "*": {
+        "strategy": "tar",
+        "version": "1.26.0",
+        "url": "https://github.com/starship/starship",
+        "asset_name_format": {
+          "darwin": "starship-{arch}-{vendor}-{os}.tar.gz",
+          "linux": "starship-{arch}-{vendor}-{os}-musl.tar.gz"
+        },
+        "targets": {
+          "starship": "bin"
+        },
+        "strip_components": 0
+      }
+    }
+  },
+  {
     "name": "ripgrep",
     "executable": "rg",
     "install": {
