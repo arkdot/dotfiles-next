@@ -10,6 +10,7 @@ Directories will be created, and files will be symlinked.
 """
 
 from __future__ import annotations
+from typing import Sequence
 
 import argparse
 import json
@@ -290,8 +291,23 @@ class CargoStrategy(StrictModel):
         )
 
 
+class ScriptStrategy(StrictModel):
+    strategy: Literal["script"]
+    script: Sequence[str]
+    interpreter: str = "bash"
+
+    def install(self, target_dir: Path):
+        with tempfile.NamedTemporaryFile(mode="wt") as fp:
+            fp.write("\n".join(self.script))
+            fp.seek(0)
+
+            subprocess.run(
+                [self.interpreter, fp.name], check=True, capture_output=True, text=True
+            )
+
+
 InstallStrategy = Annotated[
-    TarStrategy | CargoStrategy, Field(discriminator="strategy")
+    TarStrategy | CargoStrategy | ScriptStrategy, Field(discriminator="strategy")
 ]
 
 
@@ -471,40 +487,6 @@ def has_command(command: str) -> bool:
     return result.returncode == 0
 
 
-def install_cargo():
-    """Installs cargo."""
-
-    with NamedTemporaryFile(delete_on_close=False) as fp:
-        result = subprocess.run(
-            ["curl", "-s", "-S", "-f", "https://sh.rustup.rs"],
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            fatal_error(f"failed to download cargo install script:\n{result.stderr}\n")
-            fatal_error("failed to download cargo install script")
-            sys.exit(1)
-        else:
-            fp.write(result.stdout)
-            fp.close()
-
-        with Progress(console=console) as progress:
-            task = progress.add_task("[cyan]Installing cargo...", total=None)
-
-            result = subprocess.run(
-                ["sh", fp.name, "-q", "-y", "--no-modify-path"],
-                capture_output=True,
-                check=False,
-            )
-            if result.returncode != 0:
-                progress.update(task, description="[bold red]Failed")
-                fatal_error(f"failed to install cargo:\n{result.stderr}\n")
-                fatal_error("failed to install cargo")
-                sys.exit(1)
-            else:
-                progress.update(task, description="[green]cargo installation: Done!")
-
-
 def cargo_install(package: str, cargo_executable: Path) -> bool:
     """Run `cargo install --locked <package>`."""
     result = subprocess.run(
@@ -517,14 +499,6 @@ def cargo_install(package: str, cargo_executable: Path) -> bool:
 
 def install_tools(dry_run: bool, target_dir: Path):
     """Install tools listed in `packages.json`."""
-
-    if not has_command("cargo"):
-        install_cargo()
-
-    # Create full path to cargo executable and check it is actually here
-    cargo_executable = Path.home() / ".cargo" / "bin" / "cargo"
-    if not cargo_executable.is_file():
-        fatal_error(f"cargo executable not found at {cargo_executable!s}")
 
     packages_list_path = Path("packages.json")
     if packages_list_path.exists():
