@@ -10,7 +10,6 @@ Directories will be created, and files will be symlinked.
 """
 
 from __future__ import annotations
-from typing import Sequence
 
 import argparse
 import json
@@ -20,11 +19,10 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from platform import uname_result
-from tempfile import NamedTemporaryFile
 from typing import Annotated, Literal
 from urllib.parse import urlparse
 
@@ -162,7 +160,9 @@ class FilterBase:
     def __init__(self):
         self._next: FilterBase | None = None
 
-    def __call__(self, member: tarfile.TarInfo, path: Path) -> tarfile.TarInfo | None:
+    def __call__(
+        self, member: tarfile.TarInfo | None, path: Path
+    ) -> tarfile.TarInfo | None:
         if self._next:
             member = self._next.__call__(member, path)
         return member
@@ -180,8 +180,10 @@ class StripComponentsFilter(FilterBase):
         super().__init__()
         self.n = n
 
-    def __call__(self, member: tarfile.TarInfo, path: Path):
-        if member.name != ".":
+    def __call__(
+        self, member: tarfile.TarInfo | None, path: Path
+    ) -> tarfile.TarInfo | None:
+        if member and member.name != ".":
             parts = Path(member.name).parts
             assert len(parts) >= self.n
             member.name = str(Path(*parts[self.n :]))
@@ -194,12 +196,15 @@ class CustomTargetsFilter(FilterBase):
         super().__init__()
         self.targets = {Path(source): Path(dest) for source, dest in targets.items()}
 
-    def __call__(self, member, path):
-        path = Path(member.name)
-        for target, dest_dir in self.targets.items():
-            if path.is_relative_to(target):
-                member.name = str(dest_dir / path)
-                return super().__call__(member, path)
+    def __call__(
+        self, member: tarfile.TarInfo | None, path: Path
+    ) -> tarfile.TarInfo | None:
+        if member:
+            path = Path(member.name)
+            for target, dest_dir in self.targets.items():
+                if path.is_relative_to(target):
+                    member.name = str(dest_dir / path)
+                    return super().__call__(member, path)
         return None
 
 
@@ -227,7 +232,7 @@ def download_tarball(
         fp.seek(0)
 
         with tarfile.open(fileobj=fp, mode="r:gz") as tarobj:
-            members = [filter_func(m, None) for m in tarobj.getmembers()]
+            members = [filter_func(m, Path()) for m in tarobj.getmembers()]
             members = [m for m in members if m is not None]
             tarobj.extractall(path=target_dir, members=members)
 
@@ -254,8 +259,6 @@ class TarStrategy(StrictModel):
 
     @property
     def asset_name(self) -> str:
-        # d = {name: getattr(self, name) for name in ("name", "version")}
-        # d.update(SYSTEM.asdict())
         d = SYSTEM.asdict()
         d["version"] = self.version
         key = "*" if "*" in self.asset_name_format else SYSTEM.os
@@ -388,7 +391,7 @@ def log_modified(path: Path):
     console.print(f"[bold yellow][~][/bold yellow] {path}")
 
 
-def iter_dotfiles(root: Path, dest_dir: Path) -> Iterator[Path, Path]:
+def iter_dotfiles(root: Path, dest_dir: Path) -> Iterator[tuple[Path, Path]]:
     """Iterates over files and directories in the root directory.
 
     Creates the destination path on the fly.
